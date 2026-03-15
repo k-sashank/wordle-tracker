@@ -1,4 +1,5 @@
 import os
+from urllib.parse import urlparse, urlunparse, quote_plus
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
@@ -9,6 +10,34 @@ SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./wordle.db")
 # Render and some hosts set DATABASE_URL with postgres://; SQLAlchemy 1.4+ wants postgresql://
 if SQLALCHEMY_DATABASE_URL.startswith("postgres://"):
     SQLALCHEMY_DATABASE_URL = SQLALCHEMY_DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+
+def _fix_postgres_url_with_special_chars_in_password(url: str) -> str:
+    """
+    If the password in a postgres URL contains '@', URL parsers treat it as the user@host
+    separator and break (e.g. host becomes "468726@db.xxx.supabase.co"). Re-parse and
+    rebuild the URL with the password properly quoted so the host is correct.
+    """
+    if not url.startswith("postgresql://"):
+        return url
+    parsed = urlparse(url)
+    netloc = parsed.netloc
+    if "@" not in netloc or netloc.count("@") < 2:
+        return url
+    # netloc is like "user:pass@word@db.host.com:5432" -> we want host:port = last segment
+    parts = netloc.split("@")
+    host_port = parts[-1]
+    user_pass = "@".join(parts[:-1])
+    if ":" not in user_pass:
+        return url
+    user, password = user_pass.split(":", 1)
+    encoded_password = quote_plus(password)
+    new_netloc = f"{user}:{encoded_password}@{host_port}"
+    parsed = parsed._replace(netloc=new_netloc)
+    return urlunparse(parsed)
+
+
+SQLALCHEMY_DATABASE_URL = _fix_postgres_url_with_special_chars_in_password(SQLALCHEMY_DATABASE_URL)
 
 _connect_args = {}
 if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
