@@ -344,7 +344,7 @@ def show_settings_tab(user: dict):
     clicked_pet = _profile_row("Pet name", "pet_name", pet_name)
     clicked_username = _profile_row("Username", "username", username)
 
-    st.markdown("**Timezone** (for \"today\" and default dates when deployed)")
+    st.markdown("**Timezone**")
     current_tz = (current.get("timezone") or "UTC").strip() or "UTC"
     tz_index = next((i for i, t in enumerate(TIMEZONES) if t == current_tz), 0)
     new_tz = st.selectbox(
