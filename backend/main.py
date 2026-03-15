@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import List
 
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -35,11 +35,16 @@ app = FastAPI(title="Wordle Tracker API")
 
 
 def _migrate_add_user_profile_columns():
-    """Add first_name, last_name, pet_name to users if they don't exist (SQLite)."""
+    """Add first_name, last_name, pet_name, timezone to users if they don't exist (SQLite)."""
     with engine.connect() as conn:
-        for col in ("first_name", "last_name", "pet_name"):
+        for col, col_type in [
+            ("first_name", "VARCHAR(50)"),
+            ("last_name", "VARCHAR(50)"),
+            ("pet_name", "VARCHAR(50)"),
+            ("timezone", "VARCHAR(64)"),
+        ]:
             try:
-                conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} VARCHAR(50)"))
+                conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} {col_type}"))
                 conn.commit()
             except Exception:
                 # Column likely already exists
@@ -166,6 +171,9 @@ def update_profile(payload: UserProfileUpdate, db: Session = Depends(get_db)) ->
         user.last_name = payload.last_name.strip()
     if payload.pet_name is not None:
         user.pet_name = payload.pet_name.strip()
+
+    if payload.timezone is not None:
+        user.timezone = payload.timezone.strip() or None
 
     if payload.new_username is not None:
         new_username = payload.new_username.strip()
@@ -300,9 +308,12 @@ def get_leaderboard(
 
 
 @app.get("/results/today", response_model=List[TodayStatus])
-def get_today_results(db: Session = Depends(get_db)) -> List[TodayStatus]:
-    """Get today's entry status for all users."""
-    today = date.today()
+def get_today_results(
+    date_param: date | None = Query(None, alias="date"),
+    db: Session = Depends(get_db),
+) -> List[TodayStatus]:
+    """Get today's entry status for all users. Optional ?date=YYYY-MM-DD for user's local 'today'."""
+    today = date_param if date_param is not None else date.today()
     users = db.query(User).all()
 
     statuses = []

@@ -1,6 +1,7 @@
 import datetime
 import os
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 import requests
 import streamlit as st
@@ -10,6 +11,29 @@ from plotly.subplots import make_subplots
 
 
 BACKEND_URL = os.getenv("WORDLE_BACKEND_URL", "http://localhost:8000")
+
+# Timezones for "today" and default dates (server may be UTC; user's date can differ)
+TIMEZONES = [
+    "UTC",
+    "America/Los_Angeles",
+    "America/Denver",
+    "America/Chicago",
+    "America/New_York",
+    "Europe/London",
+    "Europe/Paris",
+    "Asia/Kolkata",
+    "Asia/Tokyo",
+    "Australia/Sydney",
+]
+
+
+def get_user_today(user: Optional[dict]) -> datetime.date:
+    """Return 'today' in the user's timezone so deployed app matches local date."""
+    tz_name = (user or {}).get("timezone") or "UTC"
+    try:
+        return datetime.datetime.now(ZoneInfo(tz_name)).date()
+    except Exception:
+        return datetime.datetime.now(ZoneInfo("UTC")).date()
 
 
 def api_post(path: str, json: dict) -> tuple[Optional[dict], Optional[str]]:
@@ -174,22 +198,23 @@ def show_main_app():
     ])
 
     with tab_today:
-        show_today_tab()
+        show_today_tab(user)
 
     with tab_log:
         show_log_tab(user)
 
     with tab_analytics:
-        show_analytics_tab()
+        show_analytics_tab(user)
 
     with tab_settings:
         show_settings_tab(user)
 
 
-def show_today_tab():
+def show_today_tab(user: dict):
     st.subheader("📋 Today's Status")
 
-    today_data = api_get("/results/today")
+    user_today = get_user_today(user)
+    today_data = api_get("/results/today", params={"date": user_today.isoformat()})
     if not today_data:
         st.info("No users registered yet.")
         return
@@ -213,8 +238,8 @@ def show_today_tab():
 def show_log_tab(user: dict):
     st.subheader("✏️ Log a Wordle result")
 
-    today = datetime.date.today()
-    date_value = st.date_input("Date", value=today)
+    user_today = get_user_today(user)
+    date_value = st.date_input("Date", value=user_today)
 
     attempts = st.number_input("Number of attempts (1-6)", min_value=1, max_value=6, value=4)
 
@@ -319,6 +344,25 @@ def show_settings_tab(user: dict):
     clicked_pet = _profile_row("Pet name", "pet_name", pet_name)
     clicked_username = _profile_row("Username", "username", username)
 
+    st.markdown("**Timezone** (for \"today\" and default dates when deployed)")
+    current_tz = (current.get("timezone") or "UTC").strip() or "UTC"
+    tz_index = next((i for i, t in enumerate(TIMEZONES) if t == current_tz), 0)
+    new_tz = st.selectbox(
+        "Choose your timezone",
+        options=TIMEZONES,
+        index=tz_index,
+        key="settings_timezone",
+        label_visibility="collapsed",
+    )
+    if st.button("Save timezone", key="save_tz_btn") and new_tz != current_tz:
+        data, err = api_put("/users/profile", {"username": user["username"], "timezone": new_tz})
+        if err:
+            st.error(err)
+        else:
+            st.session_state["user"] = data
+            st.success("Timezone updated.")
+            st.rerun()
+
     if clicked_first:
         val = (st.session_state.get("edit_first_name") or "").strip()
         data, err = api_put("/users/profile", {"username": user["username"], "first_name": val or first_name})
@@ -373,9 +417,10 @@ def show_settings_tab(user: dict):
         st.rerun()
 
 
-def show_analytics_tab():
+def show_analytics_tab(user: dict):
     st.subheader("📊 Analytics Dashboard")
 
+    user_today = get_user_today(user)
     col1, col2 = st.columns(2)
     with col1:
         period = st.selectbox(
@@ -388,7 +433,7 @@ def show_analytics_tab():
     with col2:
         reference_date = st.date_input(
             "Reference date",
-            value=datetime.date.today(),
+            value=user_today,
             key="analytics_date",
         )
 

@@ -13,6 +13,7 @@ class User(Base):
     first_name = Column(String(50), nullable=True)
     last_name = Column(String(50), nullable=True)
     pet_name = Column(String(50), nullable=True)  # displayed in UI everywhere
+    timezone = Column(String(64), nullable=True)  # e.g. "America/Los_Angeles" for "today" and default dates
 
     results = relationship("WordleResult", back_populates="user")
 

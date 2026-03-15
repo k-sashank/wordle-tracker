@@ -13,6 +13,7 @@ class User(UserBase):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     pet_name: Optional[str] = None
+    timezone: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -38,6 +39,7 @@ class UserProfileUpdate(BaseModel):
     last_name: Optional[str] = Field(None, min_length=1, max_length=50)
     pet_name: Optional[str] = Field(None, min_length=1, max_length=50)
     new_username: Optional[str] = Field(None, min_length=1, max_length=50)
+    timezone: Optional[str] = Field(None, max_length=64)
 
 
 class ChangePasswordRequest(BaseModel):
