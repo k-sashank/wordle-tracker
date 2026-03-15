@@ -13,19 +13,17 @@ if SQLALCHEMY_DATABASE_URL.startswith("postgres://"):
 
 
 def _ensure_postgres_ssl(url: str) -> str:
-    """Ensure postgres URLs have sslmode=require for Supabase/Neon and similar cloud DBs."""
+    """Ensure postgres URLs have sslmode=require and connect_timeout for Supabase/Neon and similar cloud DBs."""
     if not url.startswith("postgresql://"):
         return url
     parsed = urlparse(url)
     query = parsed.query
-    if not query:
-        parsed = parsed._replace(query="sslmode=require")
-        return urlunparse(parsed)
-    params = parse_qsl(query)
-    if any(k.lower() == "sslmode" for k, _ in params):
-        return url
-    params.append(("sslmode", "require"))
-    parsed = parsed._replace(query=urlencode(params))
+    params = parse_qsl(query) if query else []
+    # Avoid duplicate keys; build dict then back to list for urlencode
+    param_dict = dict(params)
+    param_dict.setdefault("sslmode", "require")
+    param_dict.setdefault("connect_timeout", "15")  # Fail fast on Render instead of hanging
+    parsed = parsed._replace(query=urlencode(sorted(param_dict.items())))
     return urlunparse(parsed)
 
 

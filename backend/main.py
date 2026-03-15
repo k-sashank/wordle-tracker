@@ -35,7 +35,8 @@ app = FastAPI(title="Wordle Tracker API")
 
 
 def _migrate_add_user_profile_columns():
-    """Add first_name, last_name, pet_name, timezone to users if they don't exist (SQLite)."""
+    """Add first_name, last_name, pet_name, timezone to users if they don't exist."""
+    is_pg = engine.dialect.name == "postgresql"
     with engine.connect() as conn:
         for col, col_type in [
             ("first_name", "VARCHAR(50)"),
@@ -44,10 +45,14 @@ def _migrate_add_user_profile_columns():
             ("timezone", "VARCHAR(64)"),
         ]:
             try:
-                conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} {col_type}"))
+                if is_pg:
+                    conn.execute(text(f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col} {col_type}"))
+                else:
+                    conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} {col_type}"))
                 conn.commit()
             except Exception:
-                # Column likely already exists
+                # Column already exists (SQLite) or other non-fatal error
+                conn.rollback()
                 pass
 
 
