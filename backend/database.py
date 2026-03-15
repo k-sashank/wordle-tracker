@@ -1,5 +1,5 @@
 import os
-from urllib.parse import urlparse, urlunparse, quote_plus
+from urllib.parse import urlparse, urlunparse, quote_plus, parse_qsl, urlencode
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
@@ -10,6 +10,23 @@ SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./wordle.db")
 # Render and some hosts set DATABASE_URL with postgres://; SQLAlchemy 1.4+ wants postgresql://
 if SQLALCHEMY_DATABASE_URL.startswith("postgres://"):
     SQLALCHEMY_DATABASE_URL = SQLALCHEMY_DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+
+def _ensure_postgres_ssl(url: str) -> str:
+    """Ensure postgres URLs have sslmode=require for Supabase/Neon and similar cloud DBs."""
+    if not url.startswith("postgresql://"):
+        return url
+    parsed = urlparse(url)
+    query = parsed.query
+    if not query:
+        parsed = parsed._replace(query="sslmode=require")
+        return urlunparse(parsed)
+    params = parse_qsl(query)
+    if any(k.lower() == "sslmode" for k, _ in params):
+        return url
+    params.append(("sslmode", "require"))
+    parsed = parsed._replace(query=urlencode(params))
+    return urlunparse(parsed)
 
 
 def _fix_postgres_url_with_special_chars_in_password(url: str) -> str:
@@ -38,6 +55,7 @@ def _fix_postgres_url_with_special_chars_in_password(url: str) -> str:
 
 
 SQLALCHEMY_DATABASE_URL = _fix_postgres_url_with_special_chars_in_password(SQLALCHEMY_DATABASE_URL)
+SQLALCHEMY_DATABASE_URL = _ensure_postgres_ssl(SQLALCHEMY_DATABASE_URL)
 
 _connect_args = {}
 if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
