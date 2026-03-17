@@ -94,14 +94,20 @@ def _display_name(user: User) -> str:
     return (user.pet_name or user.username) if user else ""
 
 
-def get_current_streak(db: Session, user_id: int, reference_date: date | None = None) -> int:
+def get_current_streak(db: Session, user_id: int, current_date: date) -> int:
     """
-    Current streak: consecutive days with at least one entry, going backward.
-    End date = reference_date (default today) if user has entry that day, else reference_date - 1.
-    """
-    if reference_date is None:
-        reference_date = date.today()
+    Current streak: total number of consecutive days (ending at current_date or
+    current_date - 1 day) on which the user has an entry, going backward.
 
+    Rules:
+    - If there is an entry on current_date, the streak ends on current_date.
+    - Else if there is an entry on current_date - 1 day, the streak ends there.
+    - Else, the streak is 0.
+    - From that end date, walk backward one day at a time while there is an
+      entry for that date, counting how many consecutive days have entries.
+    This uses the user's entire history; filling in older missing days will
+    extend the streak automatically.
+    """
     rows = (
         db.query(WordleResult.date)
         .filter(WordleResult.user_id == user_id)
@@ -112,8 +118,13 @@ def get_current_streak(db: Session, user_id: int, reference_date: date | None = 
     if not dates:
         return 0
 
-    end = reference_date if reference_date in dates else reference_date - timedelta(days=1)
-    if end not in dates:
+    # Determine the end of the current streak: current_date if there's an entry,
+    # otherwise current_date - 1 day if there's an entry, otherwise no streak.
+    if current_date in dates:
+        end = current_date
+    elif (current_date - timedelta(days=1)) in dates:
+        end = current_date - timedelta(days=1)
+    else:
         return 0
 
     streak = 0
@@ -396,17 +407,26 @@ def get_analytics(
     users = db.query(User).all()
     user_stats_list = []
     scores_by_user = {}
-    streaks_by_username = {}
-    streak_bonus_winner = None
 
+    # Streaks are global: same value regardless of selected period.
+    # Compute once per user based on full history, as of the analytics reference_date.
+    streaks_by_username = {
+        user.username: get_current_streak(db, user.id, reference_date)
+        for user in users
+    }
+
+    # Optional streak bonus winner is still period-based: only users with
+    # results in the selected period participate in the bonus.
+    streak_bonus_winner = None
     users_in_period = {r.username for r in results}
     if period in ("week", "month", "year"):
-        for user in users:
-            if user.username in users_in_period:
-                streaks_by_username[user.username] = get_current_streak(db, user.id, reference_date)
-        max_streak = max(streaks_by_username.values()) if streaks_by_username else 0
+        streaks_in_period = {
+            username: streaks_by_username.get(username, 0)
+            for username in users_in_period
+        }
+        max_streak = max(streaks_in_period.values()) if streaks_in_period else 0
         if max_streak > 0:
-            winners_with_max = [u for u, s in streaks_by_username.items() if s == max_streak]
+            winners_with_max = [u for u, s in streaks_in_period.items() if s == max_streak]
             if len(winners_with_max) == 1:
                 streak_bonus_winner = winners_with_max[0]
 
@@ -427,7 +447,8 @@ def get_analytics(
             if r.WordleResult.completed:
                 attempt_dist[r.WordleResult.attempts] += 1
 
-        streak_val = streaks_by_username.get(user.username) if period in ("week", "month", "year") else None
+        # Same streak value for all periods, based on full history.
+        streak_val = streaks_by_username.get(user.username, 0)
 
         user_stats_list.append(UserStats(
             username=user.username,

@@ -2,3 +2,7 @@ wordle-tracker-env/
 DEPLOYMENT.md
 scores.txt
 thoughts.txt
+keep_alive.py
+backend/wordle.db
+backend/__pycache__/
+.devcontainer/
